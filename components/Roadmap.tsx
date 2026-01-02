@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
@@ -12,15 +12,35 @@ export const Roadmap: React.FC = () => {
   const markerRef = useRef<SVGGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<(HTMLDivElement | null)[]>([]);
+  const [scale, setScale] = useState(1);
+
+  // Sync DOM positioning with SVG scaling across different viewports
+  useEffect(() => {
+    const handleResize = () => {
+      if (svgContainerRef.current) {
+        const svgElement = svgContainerRef.current.querySelector('svg');
+        if (svgElement) {
+          const rect = svgElement.getBoundingClientRect();
+          // The base coordinate system of the SVG path is 500px wide.
+          // We calculate current scale to ensure absolute positioned cards match path waypoints.
+          const currentScale = rect.width / 500;
+          setScale(currentScale);
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Initial calculation
+
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!pathRef.current || !markerRef.current) return;
 
     const ctx = gsap.context(() => {
-      // Performance: Cache path length to avoid repeated calls to getTotalLength()
       const length = pathRef.current!.getTotalLength();
       
-      // Set initial states for drawing animation
       gsap.set(pathRef.current, { 
         strokeDasharray: length, 
         strokeDashoffset: length 
@@ -32,20 +52,20 @@ export const Roadmap: React.FC = () => {
           trigger: roadmapRef.current,
           start: "top center",
           end: "bottom center",
-          scrub: 1.2, // Slightly tighter scrub for responsiveness
+          scrub: 1.2,
           pin: svgContainerRef.current,
           pinSpacing: false,
           snap: {
             snapTo: 1 / (COURSE_LEVELS.length - 1),
             duration: { min: 0.2, max: 0.5 },
             delay: 0.05,
-            ease: "power3.inOut" // Snappier easing
+            ease: "power3.inOut"
           },
-          invalidateOnRefresh: true // Handle resizing gracefully
+          invalidateOnRefresh: true
         }
       });
 
-      // Animate marker along path
+      // Animate marker along path with GPU optimization
       mainTimeline.to(markerRef.current, {
         motionPath: {
           path: pathRef.current!,
@@ -55,18 +75,18 @@ export const Roadmap: React.FC = () => {
         },
         ease: "none",
         duration: 1,
-        force3D: true // GPU acceleration
+        force3D: true
       });
 
-      // Synchronized path "filling"
+      // Synchronized path drawing
       mainTimeline.to(pathRef.current, {
         strokeDashoffset: 0,
         ease: "none",
         duration: 1
       }, 0);
 
-      // 2. AMBIENT ANIMATIONS (Independent of Scroll)
-      // Optimized Data Flow: Uses a simple repeating loop
+      // 2. AMBIENT ANIMATIONS
+      // Data pulse effect
       gsap.to(".data-flow-path", {
         strokeDashoffset: -100,
         duration: 4,
@@ -75,16 +95,16 @@ export const Roadmap: React.FC = () => {
         force3D: true
       });
 
-      // Breathing Glow: Pulsates the Gaussian Blur
+      // Subtle breathing glow
       gsap.to("#path-glow feGaussianBlur", {
-        stdDeviation: 6, // Reduced slightly for performance
+        stdDeviation: 3,
         duration: 2.5,
         repeat: -1,
         yoyo: true,
         ease: "sine.inOut"
       });
 
-      // Shifting Gradient: Animates the stop colors
+      // Vibrant shifting gradient
       gsap.to("#roadmap-gradient stop", {
         stopColor: (i) => i === 1 ? "#d946ef" : i === 0 ? "#f472b6" : "#22d3ee",
         duration: 4,
@@ -103,7 +123,6 @@ export const Roadmap: React.FC = () => {
         
         ScrollTrigger.create({
           trigger: roadmapRef.current,
-          // Exact point where the marker hits the waypoint
           start: `top+=${triggerPos * 100}% center`,
           end: `top+=${(triggerPos + 0.1) * 100}% center`,
           onToggle: ({ isActive }) => {
@@ -155,29 +174,29 @@ export const Roadmap: React.FC = () => {
     }, roadmapRef);
 
     return () => ctx.revert();
-  }, []);
+  }, [scale]); // Re-initialize context if scale changes significantly to keep ScrollTrigger accurate
 
   return (
     <div 
       ref={roadmapRef} 
       className="relative w-full max-w-6xl mx-auto"
-      style={{ minHeight: '3200px' }} // Increased to ensure end: "bottom center" covers the last card
+      style={{ minHeight: `${2400 * scale}px` }} // Responsive vertical height
     >
-      {/* SVG Container - High-performance Layer */}
+      {/* SVG Container - Handles responsive scaling and centering */}
       <div 
         ref={svgContainerRef} 
         className="absolute inset-0 flex justify-center items-start pointer-events-none z-0 overflow-visible"
-        style={{ willChange: 'transform' }}
       >
         <svg 
-          width="500" 
-          height="2000" 
+          width="100%" 
+          height="auto"
           viewBox="0 0 500 2000" 
+          preserveAspectRatio="xMidYMin meet"
           fill="none" 
           xmlns="http://www.w3.org/2000/svg"
-          className="opacity-40 overflow-visible mt-[100px]"
+          className="opacity-40 overflow-visible mt-[100px] max-w-[500px]"
         >
-          {/* Static Guide Layer */}
+          {/* Guide Path */}
           <path 
             d={SVG_PATH}
             stroke="#111" 
@@ -185,7 +204,7 @@ export const Roadmap: React.FC = () => {
             strokeLinecap="round" 
           />
           
-          {/* Animated Flow Layer */}
+          {/* Ambient Flow Path */}
           <path 
             className="data-flow-path"
             d={SVG_PATH}
@@ -203,7 +222,6 @@ export const Roadmap: React.FC = () => {
             strokeWidth="5" 
             strokeLinecap="round" 
             filter="url(#path-glow)"
-            style={{ willChange: 'stroke-dashoffset' }}
           />
           
           <defs>
@@ -228,7 +246,7 @@ export const Roadmap: React.FC = () => {
             </filter>
           </defs>
 
-          {/* Marker Group */}
+          {/* Motion Marker */}
           <g ref={markerRef} style={{ willChange: 'transform' }}>
             <circle r="10" fill="white" filter="url(#marker-glow)" />
             <circle r="20" fill="white" fillOpacity="0.05" stroke="white" strokeWidth="0.5" strokeDasharray="3 2" />
@@ -237,11 +255,11 @@ export const Roadmap: React.FC = () => {
         </svg>
       </div>
 
-      {/* Content Layer */}
+      {/* Content Layer - Absolute positions synced via 'scale' factor */}
       <div className="relative z-10 w-full h-full">
         {COURSE_LEVELS.map((level, index) => {
-          // Precisely align cards with SVG waypoints (Y=100, 700, 1300, 1900)
-          const waypointY = 100 + index * 600;
+          // Adjust card Y position relative to SVG waypoints (100, 700, 1300, 1900)
+          const waypointY = (100 + index * 600) * scale;
           return (
             <div 
               key={level.id}
@@ -253,13 +271,13 @@ export const Roadmap: React.FC = () => {
                 width: '100%',
                 willChange: 'transform, opacity' 
               }}
-              className={`flex items-center px-6 md:px-12 ${index % 2 === 0 ? 'flex-row' : 'flex-row-reverse'}`}
+              className={`flex items-center px-4 md:px-12 ${index % 2 === 0 ? 'flex-row' : 'flex-row-reverse'}`}
             >
               <div className={`w-full md:w-[45%] ${index % 2 === 0 ? 'md:pr-12' : 'md:pl-12'}`}>
                 <LevelCard level={level} index={index} />
               </div>
 
-              {/* Waypoint Visual Indicator */}
+              {/* Waypoint Dot Indicator */}
               <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center justify-center">
                  <div className={`waypoint-dot-${index} w-5 h-5 rounded-full bg-[#111] border-2 border-white/10 transition-all duration-500 z-20`}></div>
               </div>
